@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id         String     @id @default(cuid())
+  email      String     @unique
+  name       String
+  password   String
+  role       String     @default("admin")
+  leads      Lead[]
+  deals      Deal[]
+  tasks      Task[]
+  outbounds  Outbound[]
+  activities Activity[]
+  createdAt  DateTime   @default(now())
+}
+
+model Lead {
+  id         String     @id @default(cuid())
+  name       String
+  company    String?
+  email      String?
+  phone      String?
+  linkedin   String?
+  origin     String     @default("Otro")
+  vertical   String     @default("Otro")
+  status     String     @default("Nuevo")
+  notes      String?
+  ownerId    String
+  owner      User       @relation(fields: [ownerId], references: [id])
+  deals      Deal[]
+  tasks      Task[]
+  activities Activity[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+}
+
+model Deal {
+  id           String     @id @default(cuid())
+  company      String
+  value        Float      @default(0)
+  service      String
+  stage        String     @default("Nuevo contacto")
+  ownerId      String
+  owner        User       @relation(fields: [ownerId], references: [id])
+  leadId       String?
+  lead         Lead?      @relation(fields: [leadId], references: [id])
+  notes        String?
+  tasks        Task[]
+  activities   Activity[]
+  stageMovedAt DateTime   @default(now())
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Client {
+  id         String     @id @default(cuid())
+  company    String
+  contact    String
+  email      String?
+  plan       String     @default("Starter")
+  mrr        Float      @default(0)
+  status     String     @default("Activo")
+  services   String?
+  nextReview DateTime?
+  dealId     String?
+  notes      String?
+  activities Activity[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  priority    String    @default("Media")
+  status      String    @default("Pendiente")
+  dueDate     DateTime?
+  ownerId     String
+  owner       User      @relation(fields: [ownerId], references: [id])
+  leadId      String?
+  lead        Lead?     @relation(fields: [leadId], references: [id])
+  dealId      String?
+  deal        Deal?     @relation(fields: [dealId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Outbound {
+  id          String    @id @default(cuid())
+  contact     String
+  company     String?
+  channel     String    @default("Email")
+  messageSent Boolean   @default(false)
+  sentDate    DateTime?
+  followUpNum Int       @default(0)
+  response    String    @default("Pendiente")
+  notes       String?
+  ownerId     String
+  owner       User      @relation(fields: [ownerId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Activity {
+  id        String   @id @default(cuid())
+  type      String
+  message   String
+  leadId    String?
+  lead      Lead?    @relation(fields: [leadId], references: [id])
+  dealId    String?
+  deal      Deal?    @relation(fields: [dealId], references: [id])
+  clientId  String?
+  client    Client?  @relation(fields: [clientId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}

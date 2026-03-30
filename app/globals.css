@@ -1,0 +1,94 @@
+@import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,600,700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-background: #0D0D14;
+  --color-surface: #16162A;
+  --color-border: #333345;
+  --color-primary: #6C63FF;
+  --color-primary-hover: #7A72FF;
+  --color-primary-light: #8B84FF;
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: #9999AA;
+  --color-text-muted: #666680;
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-danger: #F87171;
+  --color-info: #06B6D4;
+
+  --font-sans: 'Satoshi', system-ui, sans-serif;
+
+  --shadow-glow: 0 0 20px rgba(108, 99, 255, 0.15);
+  --shadow-glow-sm: 0 0 10px rgba(108, 99, 255, 0.1);
+
+  --animate-fade-in: fadeIn 0.2s ease-out;
+  --animate-slide-up: slideUp 0.2s ease-out;
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-background);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-muted);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+  .glow-primary {
+    box-shadow: 0 0 20px rgba(108, 99, 255, 0.2);
+  }
+  .shadow-glow {
+    box-shadow: var(--shadow-glow);
+  }
+  .shadow-glow-sm {
+    box-shadow: var(--shadow-glow-sm);
+  }
+  .animate-fade-in {
+    animation: var(--animate-fade-in);
+  }
+  .animate-slide-up {
+    animation: var(--animate-slide-up);
+  }
+}

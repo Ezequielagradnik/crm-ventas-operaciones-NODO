@@ -1,2 +1,6 @@
 .claude
 .agents
+/generated/prisma
+node_modules
+.env
+.next

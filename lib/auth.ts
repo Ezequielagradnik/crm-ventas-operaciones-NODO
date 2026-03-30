@@ -1,8 +1,13 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
-import db from "@/lib/db";
+import { createClient } from "@supabase/supabase-js";
 import { authConfig } from "@/auth.config";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY!
+);
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   ...authConfig,
@@ -16,12 +21,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        const { rows } = await db.query(
-          `SELECT id, email, name, password FROM "User" WHERE email = $1 LIMIT 1`,
-          [credentials.email]
-        );
-        const user = rows[0];
-        if (!user) return null; 
+        const { data: user } = await supabase
+          .from("User")
+          .select("id, email, name, password")
+          .eq("email", credentials.email)
+          .single();
+
+        if (!user) return null;
 
         const match = await bcrypt.compare(credentials.password as string, user.password);
         if (!match) return null;

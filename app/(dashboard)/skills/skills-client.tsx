@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, ExternalLink, Pencil, Trash2, X, Check, Github, Search } from "lucide-react";
+import { Plus, ExternalLink, Pencil, Trash2, X, Check, BookMarked, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 const CATEGORIES = ["General", "Automatización", "Datos", "Frontend", "Backend", "Prompts", "Agentes", "Integraciones"];
@@ -143,7 +143,7 @@ function SkillCard({ skill, onEdit, onDelete }: {
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0 flex-1">
           <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-            <Github className="h-4 w-4 text-primary" />
+            <BookMarked className="h-4 w-4 text-primary" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
@@ -281,7 +281,7 @@ export function SkillsClient() {
           <p className="text-sm text-text-muted text-center py-12">Cargando...</p>
         ) : skills.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-16">
-            <Github className="h-10 w-10 text-text-muted opacity-30" />
+            <BookMarked className="h-10 w-10 text-text-muted opacity-30" />
             <p className="text-sm text-text-muted">No hay skills guardados aún</p>
             <button onClick={() => setAdding(true)} className="text-xs text-primary hover:underline">
               Agregar el primero

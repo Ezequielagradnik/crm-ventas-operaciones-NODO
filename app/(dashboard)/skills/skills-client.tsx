@@ -17,12 +17,12 @@ interface Skill {
   addedBy: { id: string; name: string } | null;
 }
 
-const categoryColors: Record<string, "primary" | "success" | "warning" | "danger" | "secondary"> = {
-  Automatización: "primary",
+const categoryColors: Record<string, "default" | "success" | "warning" | "danger" | "secondary" | "info"> = {
+  Automatización: "default",
   Datos: "success",
   Frontend: "warning",
   Backend: "danger",
-  Prompts: "primary",
+  Prompts: "info",
   Agentes: "success",
   Integraciones: "warning",
   General: "secondary",

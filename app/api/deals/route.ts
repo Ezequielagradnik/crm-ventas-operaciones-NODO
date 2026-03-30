@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import prisma from "@/lib/prisma";
+import db from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -9,16 +9,21 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const stage = searchParams.get("stage");
 
-  const deals = await prisma.deal.findMany({
-    where: { ...(stage && { stage }) },
-    include: {
-      owner: { select: { id: true, name: true } },
-      lead: { select: { id: true, name: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const params: unknown[] = [];
+  const where = stage ? (params.push(stage), `WHERE d.stage = $1`) : "";
 
-  return NextResponse.json(deals);
+  const { rows } = await db.query(`
+    SELECT d.*,
+      json_build_object('id', u.id, 'name', u.name) AS owner,
+      CASE WHEN d."leadId" IS NOT NULL THEN json_build_object('id', l.id, 'name', l.name) ELSE NULL END AS lead
+    FROM "Deal" d
+    LEFT JOIN "User" u ON d."ownerId" = u.id
+    LEFT JOIN "Lead" l ON d."leadId" = l.id
+    ${where}
+    ORDER BY d."createdAt" DESC
+  `, params);
+
+  return NextResponse.json(rows);
 }
 
 export async function POST(req: NextRequest) {
@@ -32,25 +37,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Empresa y servicio requeridos" }, { status: 400 });
   }
 
-  const users = await prisma.user.findMany({ select: { id: true } });
-  const resolvedOwnerId = ownerId ?? session.user?.id ?? users[0]?.id;
+  const usersRes = await db.query(`SELECT id FROM "User" LIMIT 1`);
+  const resolvedOwnerId = ownerId ?? session.user?.id ?? usersRes.rows[0]?.id;
 
-  const deal = await prisma.deal.create({
-    data: { company, value: value ?? 0, service, stage: stage ?? "Nuevo contacto", ownerId: resolvedOwnerId, leadId, notes },
-    include: {
-      owner: { select: { id: true, name: true } },
-      lead: { select: { id: true, name: true } },
-    },
-  });
+  const { rows } = await db.query(`
+    WITH ins AS (
+      INSERT INTO "Deal" (id, company, value, service, stage, "ownerId", "leadId", notes, "stageMovedAt", "createdAt", "updatedAt")
+      VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), NOW())
+      RETURNING *
+    )
+    SELECT i.*,
+      json_build_object('id', u.id, 'name', u.name) AS owner,
+      CASE WHEN i."leadId" IS NOT NULL THEN json_build_object('id', l.id, 'name', l.name) ELSE NULL END AS lead
+    FROM ins i
+    LEFT JOIN "User" u ON i."ownerId" = u.id
+    LEFT JOIN "Lead" l ON i."leadId" = l.id
+  `, [company, value ?? 0, service, stage ?? "Nuevo contacto", resolvedOwnerId, leadId ?? null, notes ?? null]);
 
-  await prisma.activity.create({
-    data: {
-      type: "deal_created",
-      message: `Deal creado: ${deal.company}`,
-      dealId: deal.id,
-      userId: resolvedOwnerId,
-    },
-  });
+  const deal = rows[0];
+
+  await db.query(`
+    INSERT INTO "Activity" (id, type, message, "dealId", "userId", "createdAt")
+    VALUES (gen_random_uuid()::text, 'deal_created', $1, $2, $3, NOW())
+  `, [`Deal creado: ${deal.company}`, deal.id, resolvedOwnerId]);
 
   return NextResponse.json(deal, { status: 201 });
 }

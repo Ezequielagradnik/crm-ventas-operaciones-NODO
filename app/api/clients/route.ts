@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import prisma from "@/lib/prisma";
+import db from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -9,12 +9,15 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status");
 
-  const clients = await prisma.client.findMany({
-    where: { ...(status && { status }) },
-    orderBy: { createdAt: "desc" },
-  });
+  const params: unknown[] = [];
+  const where = status ? (params.push(status), `WHERE status = $1`) : "";
 
-  return NextResponse.json(clients);
+  const { rows } = await db.query(
+    `SELECT * FROM "Client" ${where} ORDER BY "createdAt" DESC`,
+    params
+  );
+
+  return NextResponse.json(rows);
 }
 
 export async function POST(req: NextRequest) {
@@ -28,20 +31,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Empresa y contacto requeridos" }, { status: 400 });
   }
 
-  const client = await prisma.client.create({
-    data: {
-      company,
-      contact,
-      email,
-      plan: plan ?? "Starter",
-      mrr: mrr ?? 0,
-      status: status ?? "Activo",
-      services,
-      nextReview: nextReview ? new Date(nextReview) : null,
-      dealId,
-      notes,
-    },
-  });
+  const { rows } = await db.query(`
+    INSERT INTO "Client" (id, company, contact, email, plan, mrr, status, services, "nextReview", "dealId", notes, "createdAt", "updatedAt")
+    VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+    RETURNING *
+  `, [company, contact, email ?? null, plan ?? "Starter", mrr ?? 0, status ?? "Activo",
+      services ?? null, nextReview ? new Date(nextReview) : null, dealId ?? null, notes ?? null]);
 
-  return NextResponse.json(client, { status: 201 });
+  return NextResponse.json(rows[0], { status: 201 });
 }

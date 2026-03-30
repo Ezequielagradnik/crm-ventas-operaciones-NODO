@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import prisma from "@/lib/prisma";
+import db from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -12,24 +12,30 @@ export async function GET(req: NextRequest) {
   const origin = searchParams.get("origin");
   const search = searchParams.get("search");
 
-  const leads = await prisma.lead.findMany({
-    where: {
-      ...(status && { status }),
-      ...(owner && { ownerId: owner }),
-      ...(origin && { origin }),
-      ...(search && {
-        OR: [
-          { name: { contains: search } },
-          { company: { contains: search } },
-          { email: { contains: search } },
-        ],
-      }),
-    },
-    include: { owner: { select: { id: true, name: true } } },
-    orderBy: { createdAt: "desc" },
-  });
+  const conditions: string[] = [];
+  const params: unknown[] = [];
 
-  return NextResponse.json(leads);
+  if (status) { params.push(status); conditions.push(`l.status = $${params.length}`); }
+  if (owner) { params.push(owner); conditions.push(`l."ownerId" = $${params.length}`); }
+  if (origin) { params.push(origin); conditions.push(`l.origin = $${params.length}`); }
+  if (search) {
+    params.push(`%${search}%`);
+    const n = params.length;
+    conditions.push(`(l.name ILIKE $${n} OR l.company ILIKE $${n} OR l.email ILIKE $${n})`);
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const { rows } = await db.query(`
+    SELECT l.*,
+      json_build_object('id', u.id, 'name', u.name) AS owner
+    FROM "Lead" l
+    LEFT JOIN "User" u ON l."ownerId" = u.id
+    ${where}
+    ORDER BY l."createdAt" DESC
+  `, params);
+
+  return NextResponse.json(rows);
 }
 
 export async function POST(req: NextRequest) {
@@ -41,22 +47,27 @@ export async function POST(req: NextRequest) {
 
   if (!name) return NextResponse.json({ error: "Nombre requerido" }, { status: 400 });
 
-  const users = await prisma.user.findMany({ select: { id: true } });
-  const resolvedOwnerId = ownerId ?? session.user?.id ?? users[0]?.id;
+  const usersRes = await db.query(`SELECT id FROM "User" LIMIT 1`);
+  const resolvedOwnerId = ownerId ?? session.user?.id ?? usersRes.rows[0]?.id;
 
-  const lead = await prisma.lead.create({
-    data: { name, company, email, phone, linkedin, origin, vertical, status, notes, ownerId: resolvedOwnerId },
-    include: { owner: { select: { id: true, name: true } } },
-  });
+  const { rows } = await db.query(`
+    WITH ins AS (
+      INSERT INTO "Lead" (id, name, company, email, phone, linkedin, origin, vertical, status, notes, "ownerId", "createdAt", "updatedAt")
+      VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+      RETURNING *
+    )
+    SELECT i.*, json_build_object('id', u.id, 'name', u.name) AS owner
+    FROM ins i
+    LEFT JOIN "User" u ON i."ownerId" = u.id
+  `, [name, company ?? null, email ?? null, phone ?? null, linkedin ?? null,
+      origin ?? "Otro", vertical ?? "Otro", status ?? "Nuevo", notes ?? null, resolvedOwnerId]);
 
-  await prisma.activity.create({
-    data: {
-      type: "lead_created",
-      message: `Lead creado: ${lead.name}${lead.company ? ` (${lead.company})` : ""}`,
-      leadId: lead.id,
-      userId: resolvedOwnerId,
-    },
-  });
+  const lead = rows[0];
+
+  await db.query(`
+    INSERT INTO "Activity" (id, type, message, "leadId", "userId", "createdAt")
+    VALUES (gen_random_uuid()::text, 'lead_created', $1, $2, $3, NOW())
+  `, [`Lead creado: ${lead.name}${lead.company ? ` (${lead.company})` : ""}`, lead.id, resolvedOwnerId]);
 
   return NextResponse.json(lead, { status: 201 });
 }

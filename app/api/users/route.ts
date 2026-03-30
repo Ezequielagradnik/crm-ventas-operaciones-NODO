@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import prisma from "@/lib/prisma";
+import db from "@/lib/db";
 
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const users = await prisma.user.findMany({
-    select: { id: true, name: true, email: true },
-    orderBy: { name: "asc" },
-  });
+  const { rows } = await db.query(
+    `SELECT id, name, email FROM "User" ORDER BY name ASC`
+  );
 
-  return NextResponse.json(users);
+  return NextResponse.json(rows);
 }

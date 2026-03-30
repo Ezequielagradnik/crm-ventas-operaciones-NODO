@@ -43,8 +43,8 @@ export async function GET() {
     }),
   ]);
 
-  const pipelineValue = deals.reduce((sum: number, d) => sum + d.value, 0);
-  const mrr = activeClients.reduce((sum: number, c) => sum + c.mrr, 0);
+  const pipelineValue = deals.reduce((sum: number, d: { value: number; stage: string }) => sum + d.value, 0);
+  const mrr = activeClients.reduce((sum: number, c: { mrr: number }) => sum + c.mrr, 0);
 
   const stageBreakdown = deals.reduce<Record<string, number>>((acc, d) => {
     acc[d.stage] = (acc[d.stage] ?? 0) + d.value;

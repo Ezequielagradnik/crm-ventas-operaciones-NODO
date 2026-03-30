@@ -8,4 +8,4 @@ node_modules
 *.db
 *.db-shm
 *.db-wal
-prisma.config.ts
+.vercel

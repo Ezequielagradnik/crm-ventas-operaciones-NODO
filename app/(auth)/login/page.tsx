@@ -7,6 +7,7 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NodoLogo } from "@/components/brand/nodo-logo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -39,14 +40,8 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
       {/* Logo */}
-      <div className="mb-8 flex flex-col items-center gap-3">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary shadow-glow">
-          <span className="text-xl font-bold text-white">N</span>
-        </div>
-        <div className="text-center">
-          <h1 className="text-2xl font-bold tracking-tight text-text-primary">NODO</h1>
-          <p className="text-sm text-text-muted">AI Agents Studio</p>
-        </div>
+      <div className="mb-8">
+        <NodoLogo variant="full" size={64} />
       </div>
 
       {/* Card */}

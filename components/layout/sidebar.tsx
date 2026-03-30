@@ -12,11 +12,11 @@ import {
   Settings,
   LogOut,
   UserCheck,
-  Search,
 } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { NodoLogo } from "@/components/brand/nodo-logo";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -36,9 +36,9 @@ export function Sidebar() {
     <TooltipProvider delayDuration={300}>
       <aside className="flex h-screen w-14 flex-col items-center border-r border-border bg-surface py-3 fixed left-0 top-0 z-40 xl:w-56 xl:items-start">
         {/* Logo */}
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary shadow-glow xl:w-auto xl:px-4 xl:gap-2.5 xl:rounded-lg xl:h-9 xl:mx-1 xl:mb-1">
-          <span className="text-base font-bold text-white">N</span>
-          <span className="hidden xl:block text-sm font-semibold text-white">NODO</span>
+        <div className="flex items-center justify-center xl:justify-start xl:px-2 xl:mb-1">
+          <NodoLogo variant="icon" size={32} className="xl:hidden" />
+          <NodoLogo variant="sidebar" size={32} className="hidden xl:flex" />
         </div>
 
         {/* Nav */}

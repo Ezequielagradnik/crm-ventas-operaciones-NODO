@@ -1,8 +1,9 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import db from "@/lib/db";
+import { supabase } from "@/lib/supabase";
 
 export async function GET() {
-  const { rows } = await db.query(`SELECT id, name, email FROM "User" ORDER BY name ASC`);
-  return NextResponse.json(rows);
+  const { data, error } = await supabase.from("User").select("id, name, email").order("name");
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data);
 }

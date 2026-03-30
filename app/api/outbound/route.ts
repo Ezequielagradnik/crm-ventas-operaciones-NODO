@@ -1,34 +1,54 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/db";
+import { supabase } from "@/lib/supabase";
+
+const OUTBOUND_SELECT = `*, owner:User!Outbound_ownerId_fkey(id, name)`;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const response = searchParams.get("response");
   const owner = searchParams.get("owner");
-  const conditions: string[] = [];
-  const params: unknown[] = [];
-  if (response) { params.push(response); conditions.push(`o.response = $${params.length}`); }
-  if (owner) { params.push(owner); conditions.push(`o."ownerId" = $${params.length}`); }
-  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-  const { rows } = await db.query(`
-    SELECT o.*, json_build_object('id', u.id, 'name', u.name) AS owner
-    FROM "Outbound" o LEFT JOIN "User" u ON o."ownerId" = u.id ${where} ORDER BY o."createdAt" DESC
-  `, params);
-  return NextResponse.json(rows);
+
+  let query = supabase.from("Outbound").select(OUTBOUND_SELECT);
+  if (response) query = query.eq("response", response);
+  if (owner) query = query.eq("ownerId", owner);
+  query = query.order("createdAt", { ascending: false });
+
+  const { data, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data);
 }
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const { contact, company, channel, messageSent, sentDate, followUpNum, response, notes, ownerId } = body;
   if (!contact) return NextResponse.json({ error: "Contacto requerido" }, { status: 400 });
-  const usersRes = await db.query(`SELECT id FROM "User" LIMIT 1`);
-  const resolvedOwnerId = ownerId ?? usersRes.rows[0]?.id;
-  const { rows } = await db.query(`
-    WITH ins AS (
-      INSERT INTO "Outbound" (id, contact, company, channel, "messageSent", "sentDate", "followUpNum", response, notes, "ownerId", "createdAt", "updatedAt")
-      VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW()) RETURNING *
-    )
-    SELECT i.*, json_build_object('id', u.id, 'name', u.name) AS owner FROM ins i LEFT JOIN "User" u ON i."ownerId" = u.id
-  `, [contact, company??null, channel??"Email", messageSent??false, sentDate?new Date(sentDate):null, followUpNum??0, response??"Pendiente", notes??null, resolvedOwnerId]);
-  return NextResponse.json(rows[0], { status: 201 });
+
+  let resolvedOwnerId = ownerId;
+  if (!resolvedOwnerId) {
+    const { data: users } = await supabase.from("User").select("id").limit(1);
+    resolvedOwnerId = users?.[0]?.id;
+  }
+
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("Outbound")
+    .insert({
+      id: crypto.randomUUID(),
+      contact,
+      company: company ?? null,
+      channel: channel ?? "Email",
+      messageSent: messageSent ?? false,
+      sentDate: sentDate ? new Date(sentDate).toISOString() : null,
+      followUpNum: followUpNum ?? 0,
+      response: response ?? "Pendiente",
+      notes: notes ?? null,
+      ownerId: resolvedOwnerId,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .select(OUTBOUND_SELECT)
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data, { status: 201 });
 }

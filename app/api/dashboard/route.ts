@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import db from "@/lib/db";
+import { supabase } from "@/lib/supabase";
 
 export async function GET() {
   const now = new Date();
@@ -8,44 +8,50 @@ export async function GET() {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const todayEnd = new Date(todayStart.getTime() + 86400000);
 
-  const [leadsRes, dealsRes, clientsRes, tasksRes, activitiesRes, todayTasksRes] = await Promise.all([
-    db.query(`SELECT COUNT(*)::int FROM "Lead" WHERE "createdAt" >= $1`, [weekAgo]),
-    db.query(`SELECT value, stage FROM "Deal" WHERE stage != 'Cerrado perdido'`),
-    db.query(`SELECT mrr FROM "Client" WHERE status = 'Activo'`),
-    db.query(`SELECT COUNT(*)::int FROM "Task" WHERE status != 'Completada'`),
-    db.query(`
-      SELECT a.*,
-        json_build_object('id', u.id, 'name', u.name) AS "user",
-        CASE WHEN a."leadId" IS NOT NULL THEN json_build_object('id', l.id, 'name', l.name) ELSE NULL END AS lead,
-        CASE WHEN a."dealId" IS NOT NULL THEN json_build_object('id', d.id, 'company', d.company) ELSE NULL END AS deal
-      FROM "Activity" a
-      LEFT JOIN "User" u ON a."userId" = u.id
-      LEFT JOIN "Lead" l ON a."leadId" = l.id
-      LEFT JOIN "Deal" d ON a."dealId" = d.id
-      ORDER BY a."createdAt" DESC LIMIT 10
-    `),
-    db.query(`
-      SELECT t.*, json_build_object('id', u.id, 'name', u.name) AS owner
-      FROM "Task" t
-      LEFT JOIN "User" u ON t."ownerId" = u.id
-      WHERE t.status != 'Completada' AND t."dueDate" >= $1 AND t."dueDate" < $2
-      ORDER BY t."dueDate" ASC LIMIT 10
-    `, [todayStart, todayEnd]),
+  const [
+    { count: newLeads },
+    { data: deals },
+    { data: activeClients },
+    { count: pendingTasks },
+    { data: activities },
+    { data: todayTasks },
+  ] = await Promise.all([
+    supabase.from("Lead").select("*", { count: "exact", head: true }).gte("createdAt", weekAgo.toISOString()),
+    supabase.from("Deal").select("value, stage").neq("stage", "Cerrado perdido"),
+    supabase.from("Client").select("mrr").eq("status", "Activo"),
+    supabase.from("Task").select("*", { count: "exact", head: true }).neq("status", "Completada"),
+    supabase
+      .from("Activity")
+      .select(`*, user:User!Activity_userId_fkey(id, name), lead:Lead!Activity_leadId_fkey(id, name), deal:Deal!Activity_dealId_fkey(id, company)`)
+      .order("createdAt", { ascending: false })
+      .limit(10),
+    supabase
+      .from("Task")
+      .select(`*, owner:User!Task_ownerId_fkey(id, name)`)
+      .neq("status", "Completada")
+      .gte("dueDate", todayStart.toISOString())
+      .lt("dueDate", todayEnd.toISOString())
+      .order("dueDate")
+      .limit(10),
   ]);
 
-  const deals = dealsRes.rows;
-  const activeClients = clientsRes.rows;
-  const pipelineValue = deals.reduce((s: number, d: { value: number }) => s + Number(d.value), 0);
-  const mrr = activeClients.reduce((s: number, c: { mrr: number }) => s + Number(c.mrr), 0);
-  const stageBreakdown = deals.reduce<Record<string, number>>((acc: Record<string, number>, d: { value: number; stage: string }) => {
+  const pipelineValue = (deals ?? []).reduce((s, d) => s + Number(d.value), 0);
+  const mrr = (activeClients ?? []).reduce((s, c) => s + Number(c.mrr), 0);
+  const stageBreakdown = (deals ?? []).reduce<Record<string, number>>((acc, d) => {
     acc[d.stage] = (acc[d.stage] ?? 0) + Number(d.value);
     return acc;
   }, {});
 
   return NextResponse.json({
-    kpis: { newLeads: leadsRes.rows[0].count, pipelineValue, activeClients: activeClients.length, mrr, pendingTasks: tasksRes.rows[0].count },
+    kpis: {
+      newLeads: newLeads ?? 0,
+      pipelineValue,
+      activeClients: (activeClients ?? []).length,
+      mrr,
+      pendingTasks: pendingTasks ?? 0,
+    },
     stageBreakdown,
-    recentActivity: activitiesRes.rows,
-    todayTasks: todayTasksRes.rows,
+    recentActivity: activities ?? [],
+    todayTasks: todayTasks ?? [],
   });
 }

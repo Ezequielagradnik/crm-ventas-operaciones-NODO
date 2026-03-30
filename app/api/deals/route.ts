@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/db";
+import { supabase } from "@/lib/supabase";
+
+const DEAL_SELECT = `*, owner:User!Deal_ownerId_fkey(id, name), lead:Lead!Deal_leadId_fkey(id, name)`;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const stage = searchParams.get("stage");
-  const params: unknown[] = [];
-  const where = stage ? (params.push(stage), `WHERE d.stage = $1`) : "";
-  const { rows } = await db.query(`
-    SELECT d.*, json_build_object('id', u.id, 'name', u.name) AS owner,
-      CASE WHEN d."leadId" IS NOT NULL THEN json_build_object('id', l.id, 'name', l.name) ELSE NULL END AS lead
-    FROM "Deal" d LEFT JOIN "User" u ON d."ownerId" = u.id LEFT JOIN "Lead" l ON d."leadId" = l.id
-    ${where} ORDER BY d."createdAt" DESC
-  `, params);
-  return NextResponse.json(rows);
+
+  let query = supabase.from("Deal").select(DEAL_SELECT);
+  if (stage) query = query.eq("stage", stage);
+  query = query.order("createdAt", { ascending: false });
+
+  const { data, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data);
 }
 
 export async function POST(req: NextRequest) {
@@ -20,22 +21,41 @@ export async function POST(req: NextRequest) {
   const { company, value, service, stage, ownerId, leadId, notes } = body;
   if (!company || !service) return NextResponse.json({ error: "Empresa y servicio requeridos" }, { status: 400 });
 
-  const usersRes = await db.query(`SELECT id FROM "User" LIMIT 1`);
-  const resolvedOwnerId = ownerId ?? usersRes.rows[0]?.id;
+  let resolvedOwnerId = ownerId;
+  if (!resolvedOwnerId) {
+    const { data: users } = await supabase.from("User").select("id").limit(1);
+    resolvedOwnerId = users?.[0]?.id;
+  }
 
-  const { rows } = await db.query(`
-    WITH ins AS (
-      INSERT INTO "Deal" (id, company, value, service, stage, "ownerId", "leadId", notes, "stageMovedAt", "createdAt", "updatedAt")
-      VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), NOW()) RETURNING *
-    )
-    SELECT i.*, json_build_object('id', u.id, 'name', u.name) AS owner,
-      CASE WHEN i."leadId" IS NOT NULL THEN json_build_object('id', l.id, 'name', l.name) ELSE NULL END AS lead
-    FROM ins i LEFT JOIN "User" u ON i."ownerId" = u.id LEFT JOIN "Lead" l ON i."leadId" = l.id
-  `, [company, value??0, service, stage??"Nuevo contacto", resolvedOwnerId, leadId??null, notes??null]);
+  const now = new Date().toISOString();
+  const { data: deal, error } = await supabase
+    .from("Deal")
+    .insert({
+      id: crypto.randomUUID(),
+      company,
+      value: value ?? 0,
+      service,
+      stage: stage ?? "Nuevo contacto",
+      ownerId: resolvedOwnerId,
+      leadId: leadId ?? null,
+      notes: notes ?? null,
+      stageMovedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .select(DEAL_SELECT)
+    .single();
 
-  const deal = rows[0];
-  await db.query(`INSERT INTO "Activity" (id, type, message, "dealId", "userId", "createdAt") VALUES (gen_random_uuid()::text, 'deal_created', $1, $2, $3, NOW())`,
-    [`Deal creado: ${deal.company}`, deal.id, resolvedOwnerId]);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  await supabase.from("Activity").insert({
+    id: crypto.randomUUID(),
+    type: "deal_created",
+    message: `Deal creado: ${deal.company}`,
+    dealId: deal.id,
+    userId: resolvedOwnerId,
+    createdAt: now,
+  });
 
   return NextResponse.json(deal, { status: 201 });
 }

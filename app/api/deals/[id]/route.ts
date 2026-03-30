@@ -1,64 +1,89 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/db";
+import { supabase } from "@/lib/supabase";
+
+const DEAL_SELECT = `*, owner:User!Deal_ownerId_fkey(id, name), lead:Lead!Deal_leadId_fkey(id, name)`;
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const dealRes = await db.query(`
-    SELECT d.*, json_build_object('id', u.id, 'name', u.name) AS owner,
-      CASE WHEN d."leadId" IS NOT NULL THEN json_build_object('id', l.id, 'name', l.name) ELSE NULL END AS lead
-    FROM "Deal" d LEFT JOIN "User" u ON d."ownerId" = u.id LEFT JOIN "Lead" l ON d."leadId" = l.id WHERE d.id = $1
-  `, [id]);
-  if (!dealRes.rows[0]) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const [tasksRes, activitiesRes] = await Promise.all([
-    db.query(`SELECT t.*, json_build_object('id', u.id, 'name', u.name) AS owner FROM "Task" t LEFT JOIN "User" u ON t."ownerId" = u.id WHERE t."dealId" = $1`, [id]),
-    db.query(`SELECT * FROM "Activity" WHERE "dealId" = $1 ORDER BY "createdAt" DESC LIMIT 20`, [id]),
+  const { data: deal, error } = await supabase.from("Deal").select(DEAL_SELECT).eq("id", id).single();
+  if (error || !deal) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const [{ data: tasks }, { data: activities }] = await Promise.all([
+    supabase.from("Task").select(`*, owner:User!Task_ownerId_fkey(id, name)`).eq("dealId", id),
+    supabase.from("Activity").select("*").eq("dealId", id).order("createdAt", { ascending: false }).limit(20),
   ]);
-  return NextResponse.json({ ...dealRes.rows[0], tasks: tasksRes.rows, activities: activitiesRes.rows });
+
+  return NextResponse.json({ ...deal, tasks: tasks ?? [], activities: activities ?? [] });
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const existing = await db.query(`SELECT stage, "leadId", company FROM "Deal" WHERE id = $1`, [id]);
-  if (!existing.rows[0]) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const { data: existing, error: fetchErr } = await supabase.from("Deal").select("stage, leadId, company").eq("id", id).single();
+  if (fetchErr || !existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const body = await req.json();
-  const isStageChange = body.stage && body.stage !== existing.rows[0].stage;
+  const isStageChange = body.stage && body.stage !== existing.stage;
   const allowed = ["company", "value", "service", "stage", "ownerId", "leadId", "notes"];
   const fields = Object.keys(body).filter((k) => allowed.includes(k));
   if (!fields.length) return NextResponse.json({ error: "No valid fields" }, { status: 400 });
 
-  const sets = fields.map((f, i) => `"${f}" = $${i + 2}`).join(", ");
-  const extra = isStageChange ? `, "stageMovedAt" = NOW()` : "";
-  const { rows } = await db.query(`
-    WITH upd AS (UPDATE "Deal" SET ${sets}${extra}, "updatedAt" = NOW() WHERE id = $1 RETURNING *)
-    SELECT u2.*, json_build_object('id', ow.id, 'name', ow.name) AS owner,
-      CASE WHEN u2."leadId" IS NOT NULL THEN json_build_object('id', l.id, 'name', l.name) ELSE NULL END AS lead
-    FROM upd u2 LEFT JOIN "User" ow ON u2."ownerId" = ow.id LEFT JOIN "Lead" l ON u2."leadId" = l.id
-  `, [id, ...fields.map((f) => body[f])]);
+  const now = new Date().toISOString();
+  const update: Record<string, unknown> = { updatedAt: now };
+  for (const f of fields) update[f] = body[f];
+  if (isStageChange) update.stageMovedAt = now;
 
-  const deal = rows[0];
+  const { data: deal, error } = await supabase
+    .from("Deal")
+    .update(update)
+    .eq("id", id)
+    .select(DEAL_SELECT)
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
   if (isStageChange) {
-    await db.query(`INSERT INTO "Activity" (id, type, message, "dealId", "userId", "createdAt") VALUES (gen_random_uuid()::text, 'deal_moved', $1, $2, 'system', NOW())`,
-      [`Deal movido a "${body.stage}"`, id]);
+    await supabase.from("Activity").insert({
+      id: crypto.randomUUID(),
+      type: "deal_moved",
+      message: `Deal movido a "${body.stage}"`,
+      dealId: id,
+      userId: "system",
+      createdAt: now,
+    });
+
     if (body.stage === "Cerrado ganado") {
-      const check = await db.query(`SELECT id FROM "Client" WHERE "dealId" = $1 LIMIT 1`, [id]);
-      if (!check.rows[0]) {
-        const contactName = existing.rows[0].leadId
-          ? (await db.query(`SELECT name FROM "Lead" WHERE id = $1`, [existing.rows[0].leadId])).rows[0]?.name
-          : null;
-        await db.query(`INSERT INTO "Client" (id, company, contact, "dealId", status, plan, mrr, "createdAt", "updatedAt") VALUES (gen_random_uuid()::text, $1, $2, $3, 'Activo', 'Starter', 0, NOW(), NOW())`,
-          [deal.company, contactName ?? deal.company, id]);
+      const { data: existing_client } = await supabase.from("Client").select("id").eq("dealId", id).limit(1).single();
+      if (!existing_client) {
+        let contactName: string | null = null;
+        if (existing.leadId) {
+          const { data: lead } = await supabase.from("Lead").select("name").eq("id", existing.leadId).single();
+          contactName = lead?.name ?? null;
+        }
+        await supabase.from("Client").insert({
+          id: crypto.randomUUID(),
+          company: deal.company,
+          contact: contactName ?? deal.company,
+          dealId: id,
+          status: "Activo",
+          plan: "Starter",
+          mrr: 0,
+          createdAt: now,
+          updatedAt: now,
+        });
       }
     }
   }
+
   return NextResponse.json(deal);
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  await db.query(`DELETE FROM "Activity" WHERE "dealId" = $1`, [id]);
-  await db.query(`DELETE FROM "Task" WHERE "dealId" = $1`, [id]);
-  await db.query(`DELETE FROM "Deal" WHERE id = $1`, [id]);
+  await supabase.from("Activity").delete().eq("dealId", id);
+  await supabase.from("Task").delete().eq("dealId", id);
+  const { error } = await supabase.from("Deal").delete().eq("id", id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

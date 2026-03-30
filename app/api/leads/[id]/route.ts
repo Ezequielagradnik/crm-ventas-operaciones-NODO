@@ -1,51 +1,68 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/db";
+import { supabase } from "@/lib/supabase";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const leadRes = await db.query(`
-    SELECT l.*, json_build_object('id', u.id, 'name', u.name) AS owner
-    FROM "Lead" l LEFT JOIN "User" u ON l."ownerId" = u.id WHERE l.id = $1
-  `, [id]);
-  if (!leadRes.rows[0]) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const [dealsRes, tasksRes, activitiesRes] = await Promise.all([
-    db.query(`SELECT d.*, json_build_object('id', u.id, 'name', u.name) AS owner FROM "Deal" d LEFT JOIN "User" u ON d."ownerId" = u.id WHERE d."leadId" = $1 ORDER BY d."createdAt" DESC`, [id]),
-    db.query(`SELECT t.*, json_build_object('id', u.id, 'name', u.name) AS owner FROM "Task" t LEFT JOIN "User" u ON t."ownerId" = u.id WHERE t."leadId" = $1 ORDER BY t."createdAt" DESC`, [id]),
-    db.query(`SELECT * FROM "Activity" WHERE "leadId" = $1 ORDER BY "createdAt" DESC LIMIT 20`, [id]),
+  const { data: lead, error } = await supabase
+    .from("Lead")
+    .select(`*, owner:User!Lead_ownerId_fkey(id, name)`)
+    .eq("id", id)
+    .single();
+
+  if (error || !lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const [{ data: deals }, { data: tasks }, { data: activities }] = await Promise.all([
+    supabase.from("Deal").select(`*, owner:User!Deal_ownerId_fkey(id, name)`).eq("leadId", id).order("createdAt", { ascending: false }),
+    supabase.from("Task").select(`*, owner:User!Task_ownerId_fkey(id, name)`).eq("leadId", id).order("createdAt", { ascending: false }),
+    supabase.from("Activity").select("*").eq("leadId", id).order("createdAt", { ascending: false }).limit(20),
   ]);
 
-  return NextResponse.json({ ...leadRes.rows[0], deals: dealsRes.rows, tasks: tasksRes.rows, activities: activitiesRes.rows });
+  return NextResponse.json({ ...lead, deals: deals ?? [], tasks: tasks ?? [], activities: activities ?? [] });
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const existing = await db.query(`SELECT status FROM "Lead" WHERE id = $1`, [id]);
-  if (!existing.rows[0]) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const { data: existing, error: fetchErr } = await supabase.from("Lead").select("status").eq("id", id).single();
+  if (fetchErr || !existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const body = await req.json();
   const allowed = ["name", "company", "email", "phone", "linkedin", "origin", "vertical", "status", "notes", "ownerId"];
   const fields = Object.keys(body).filter((k) => allowed.includes(k));
   if (!fields.length) return NextResponse.json({ error: "No valid fields" }, { status: 400 });
 
-  const sets = fields.map((f, i) => `"${f}" = $${i + 2}`).join(", ");
-  const values = fields.map((f) => body[f]);
-  const { rows } = await db.query(`
-    WITH upd AS (UPDATE "Lead" SET ${sets}, "updatedAt" = NOW() WHERE id = $1 RETURNING *)
-    SELECT u2.*, json_build_object('id', ow.id, 'name', ow.name) AS owner FROM upd u2 LEFT JOIN "User" ow ON u2."ownerId" = ow.id
-  `, [id, ...values]);
+  const update: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+  for (const f of fields) update[f] = body[f];
 
-  if (body.status && body.status !== existing.rows[0].status) {
-    await db.query(`INSERT INTO "Activity" (id, type, message, "leadId", "userId", "createdAt") VALUES (gen_random_uuid()::text, 'lead_status_changed', $1, $2, 'system', NOW())`,
-      [`Estado cambiado a ${body.status}`, id]);
+  const { data, error } = await supabase
+    .from("Lead")
+    .update(update)
+    .eq("id", id)
+    .select(`*, owner:User!Lead_ownerId_fkey(id, name)`)
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  if (body.status && body.status !== existing.status) {
+    await supabase.from("Activity").insert({
+      id: crypto.randomUUID(),
+      type: "lead_status_changed",
+      message: `Estado cambiado a ${body.status}`,
+      leadId: id,
+      userId: "system",
+      createdAt: new Date().toISOString(),
+    });
   }
-  return NextResponse.json(rows[0]);
+
+  return NextResponse.json(data);
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  await db.query(`DELETE FROM "Activity" WHERE "leadId" = $1`, [id]);
-  await db.query(`DELETE FROM "Task" WHERE "leadId" = $1`, [id]);
-  await db.query(`DELETE FROM "Lead" WHERE id = $1`, [id]);
+  await supabase.from("Activity").delete().eq("leadId", id);
+  await supabase.from("Task").delete().eq("leadId", id);
+  const { error } = await supabase.from("Lead").delete().eq("id", id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

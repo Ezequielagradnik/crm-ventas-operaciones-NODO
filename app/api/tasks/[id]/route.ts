@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/db";
+import { supabase } from "@/lib/supabase";
+
+const TASK_SELECT = `*, owner:User!Task_ownerId_fkey(id, name), lead:Lead!Task_leadId_fkey(id, name), deal:Deal!Task_dealId_fkey(id, company)`;
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -7,21 +9,26 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const allowed = ["title", "description", "priority", "status", "dueDate", "ownerId", "leadId", "dealId"];
   const fields = Object.keys(body).filter((k) => allowed.includes(k));
   if (!fields.length) return NextResponse.json({ error: "No valid fields" }, { status: 400 });
-  const values = fields.map((f) => f === "dueDate" && body[f] ? new Date(body[f]) : body[f]);
-  const sets = fields.map((f, i) => `"${f}" = $${i + 2}`).join(", ");
-  const { rows } = await db.query(`
-    WITH upd AS (UPDATE "Task" SET ${sets}, "updatedAt" = NOW() WHERE id = $1 RETURNING *)
-    SELECT u2.*, json_build_object('id', ow.id, 'name', ow.name) AS owner,
-      CASE WHEN u2."leadId" IS NOT NULL THEN json_build_object('id', l.id, 'name', l.name) ELSE NULL END AS lead,
-      CASE WHEN u2."dealId" IS NOT NULL THEN json_build_object('id', d.id, 'company', d.company) ELSE NULL END AS deal
-    FROM upd u2 LEFT JOIN "User" ow ON u2."ownerId" = ow.id
-    LEFT JOIN "Lead" l ON u2."leadId" = l.id LEFT JOIN "Deal" d ON u2."dealId" = d.id
-  `, [id, ...values]);
-  return NextResponse.json(rows[0]);
+
+  const update: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+  for (const f of fields) {
+    update[f] = f === "dueDate" && body[f] ? new Date(body[f]).toISOString() : body[f];
+  }
+
+  const { data, error } = await supabase
+    .from("Task")
+    .update(update)
+    .eq("id", id)
+    .select(TASK_SELECT)
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data);
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  await db.query(`DELETE FROM "Task" WHERE id = $1`, [id]);
+  const { error } = await supabase.from("Task").delete().eq("id", id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

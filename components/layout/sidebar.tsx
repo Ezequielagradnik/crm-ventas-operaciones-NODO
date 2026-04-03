@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, Users, Kanban, CheckSquare, Send, Settings, UserCheck, BookMarked,
+  LayoutDashboard, Users, Kanban, CheckSquare, Send, Settings, UserCheck, BookMarked, TrendingDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -16,6 +16,7 @@ const navItems = [
   { href: "/clientes", label: "Clientes", icon: UserCheck },
   { href: "/tareas", label: "Tareas", icon: CheckSquare },
   { href: "/outbound", label: "Outbound", icon: Send },
+  { href: "/costos", label: "Costos", icon: TrendingDown },
   { href: "/skills", label: "Claude Skills", icon: BookMarked },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

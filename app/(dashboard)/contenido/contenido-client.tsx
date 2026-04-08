@@ -165,13 +165,12 @@ function PostCard({ post, onEdit, onDelete, onStatusChange }: {
   const FormatIcon = FORMAT_ICON[post.format] ?? FileText;
 
   async function handleSave(data: Partial<Post>) {
-    const res = await fetch(`/api/content/${post.id}`, {
+    await fetch(`/api/content/${post.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    const updated = await res.json();
-    onEdit(updated);
+    onEdit({ ...post, ...data } as Post);
     setEditing(false);
   }
 
@@ -272,14 +271,13 @@ export function ContenidoClient() {
   useEffect(() => { setLoading(true); load(); }, [load]);
 
   async function handleAdd(data: Partial<Post>) {
-    const res = await fetch("/api/content", {
+    await fetch("/api/content", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    const p = await res.json();
-    setPosts((prev) => [p, ...prev]);
     setAdding(false);
+    load();
   }
 
   async function handleDelete(id: string) {
@@ -295,13 +293,12 @@ export function ContenidoClient() {
   async function handleStatusChange(id: string, status: string) {
     const body: Record<string, unknown> = { status };
     if (status === "Publicado") body.publishedAt = new Date().toISOString();
-    const res = await fetch(`/api/content/${id}`, {
+    await fetch(`/api/content/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const updated = await res.json();
-    handleEdit(updated);
+    load();
   }
 
   // Stats
